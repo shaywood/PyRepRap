@@ -8,9 +8,15 @@
 # All control is done through the Telnet connection (simplest)
 # All file upload is done using a background thread and FTP (best performance)
 
+from __future__ import print_function
+
 import telnetlib
+import json
 
 class RepRap:
+    """
+    Class that wraps a Telnet connection linking to a ZPL/CH fork of the RepRapFirmware.
+    """
     def __init__(self, host, telnet_port = 23, ftp_port = 21):
         """
         Constructs a new RepRap object, connecting via Telnet and FTP to the given host, on the 
@@ -29,6 +35,7 @@ class RepRap:
 
         :param gcode The gcode to send, do not forget a trailing newline!
         """
+        #print("Sending " + gcode)
         self.telnet.write(gcode)
 
     def _readResponse(self, timeout = 10):
@@ -40,7 +47,11 @@ class RepRap:
 
         :timeout Timeout in seconds
         """
-        return self.telnet.read_until('\n', timeout).strip("\r\n")
+        s = self.telnet.read_until('\n', timeout)
+
+        #print("Received: " + s)
+
+        return s.strip("\r\n")
 
     def hashFile(self, filepath):
         """
@@ -60,3 +71,41 @@ class RepRap:
             return ''
 
         return s
+
+    def printFile(self, filepath):
+        """
+        Invokes M32 (select file and start SD print) on filepath
+        Moves the printer into a printing status, which can be tested for with isPrinting(),
+        although that simply uses the getStatusResponse() method.
+        """
+        self._sendRawGCode("M32 " + filepath + "\n")
+
+    def getStatusResponse(self, level = 2):
+        """
+        Invokes M408 (report JSON-style response)
+        The level defaults to 2 (because lower levels don't parse properly!), 
+        but can be increased by providing an int argument
+
+        Returns a the result of json.loads(), unless there was a problem, in which case None
+        is returned
+        
+        :param level (optional) an int between 0 and 5
+        """
+        level = min(level, 2)
+
+        self._sendRawGCode("M408 S" + str(level) + "\n")
+
+        jsonStr = self._readResponse()
+
+        if (jsonStr == ''):
+            return None
+
+        return json.loads(jsonStr)
+    
+    def isPrinting(self):
+        status = self.getStatusResponse()
+
+        if status is None:
+            return False
+        else:
+            return status['status'] == 'P'
